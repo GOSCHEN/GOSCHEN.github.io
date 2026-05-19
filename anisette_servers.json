@@ -1,4 +1,7 @@
 {
+    "servers":[
+{
     "name": "goschen",
     "address": "https://anisette-server-zwr2.onrender.com"
+}]
 }

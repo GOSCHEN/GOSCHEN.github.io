@@ -4,8 +4,11 @@ import { SearchIcon, StarIcon, ForkIcon, ExternalIcon, GithubIcon } from './icon
 import languageColors from '../data/languageColors';
 import profile from '../data/profile';
 
+const PAGE_SIZE = 50;
+const MAX_PAGES = 30;
+
 const API = (page) =>
-  `https://api.github.com/users/${profile.handle}/starred?per_page=100&page=${page}`;
+  `https://api.github.com/users/${profile.handle}/starred?per_page=${PAGE_SIZE}&page=${page}`;
 
 const SORTS = [
   { key: 'recent', label: 'recently starred' },
@@ -46,47 +49,69 @@ function timeAgo(iso) {
 export default function StarsBrowser() {
   const [repos, setRepos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState('');
   const [lang, setLang] = useState('all');
   const [sort, setSort] = useState('recent');
-  const [visibleCount, setVisibleCount] = useState(50);
+  const [page, setPage] = useState(1);
+  const [hasMorePages, setHasMorePages] = useState(true);
   const sentinelRef = useRef(null);
+  const fetchingRef = useRef(false);
 
-  const PAGE_SIZE = 50;
+  const fetchPage = async (p) => {
+    const res = await fetch(API(p), {
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+    const batch = await res.json();
+    if (!Array.isArray(batch)) throw new Error('unexpected response');
+    return batch;
+  };
 
   useEffect(() => {
     let cancelled = false;
-    async function loadAll() {
+    (async () => {
       setLoading(true);
       setError(null);
       try {
-        const acc = [];
-        let page = 1;
-        const maxPages = 15;
-        while (page <= maxPages) {
-          const res = await fetch(API(page), {
-            headers: { Accept: 'application/vnd.github+json' },
-          });
-          if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-          const batch = await res.json();
-          if (!Array.isArray(batch) || batch.length === 0) break;
-          acc.push(...batch);
-          if (batch.length < 100) break;
-          page++;
-        }
-        if (!cancelled) setRepos(acc);
+        const batch = await fetchPage(1);
+        if (cancelled) return;
+        setRepos(batch);
+        setHasMorePages(batch.length === PAGE_SIZE);
       } catch (e) {
         if (!cancelled) setError(e.message || 'failed to load');
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
-    loadAll();
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const loadMore = async () => {
+    if (fetchingRef.current || !hasMorePages) return;
+    const next = page + 1;
+    if (next > MAX_PAGES) {
+      setHasMorePages(false);
+      return;
+    }
+    fetchingRef.current = true;
+    setLoadingMore(true);
+    try {
+      const batch = await fetchPage(next);
+      setRepos((prev) => [...prev, ...batch]);
+      setPage(next);
+      setHasMorePages(batch.length === PAGE_SIZE);
+    } catch (e) {
+      setError(e.message || 'failed to load');
+      setHasMorePages(false);
+    } finally {
+      fetchingRef.current = false;
+      setLoadingMore(false);
+    }
+  };
 
   const languages = useMemo(() => {
     const m = new Map();
@@ -120,27 +145,21 @@ export default function StarsBrowser() {
   }, [repos, query, lang, sort]);
 
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [query, lang, sort]);
-
-  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
-  const hasMore = visibleCount < filtered.length;
-
-  useEffect(() => {
-    if (!hasMore) return;
+    if (!hasMorePages || loading) return;
     const node = sentinelRef.current;
     if (!node) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          setVisibleCount((c) => Math.min(c + PAGE_SIZE, filtered.length));
+          loadMore();
         }
       },
       { rootMargin: '600px 0px' }
     );
     io.observe(node);
     return () => io.disconnect();
-  }, [hasMore, filtered.length, visibleCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMorePages, loading, page]);
 
   return (
     <Wrap>
@@ -198,7 +217,7 @@ export default function StarsBrowser() {
       )}
 
       <Grid>
-        {visible.map((r) => (
+        {filtered.map((r) => (
           <Card key={r.id} href={r.html_url} target="_blank" rel="noreferrer">
             <CardTop>
               <Owner>
@@ -243,9 +262,13 @@ export default function StarsBrowser() {
         ))}
       </Grid>
 
-      {hasMore && <Sentinel ref={sentinelRef}>loading more…</Sentinel>}
-      {!hasMore && filtered.length > PAGE_SIZE && (
-        <EndMark>— end of {filtered.length} repos —</EndMark>
+      {hasMorePages && !loading && (
+        <Sentinel ref={sentinelRef}>
+          {loadingMore ? 'loading more…' : 'scroll for more'}
+        </Sentinel>
+      )}
+      {!hasMorePages && repos.length > PAGE_SIZE && (
+        <EndMark>— end of {repos.length} repos —</EndMark>
       )}
     </Wrap>
   );

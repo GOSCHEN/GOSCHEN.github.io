@@ -1,20 +1,13 @@
-import WebLinks from '../components/WebLinks';
+import Hero from '../components/Hero';
+import TechStack from '../components/TechStack';
 import Seo from '../components/Seo';
-import seoData from '../next-seo.config';
-
 
 export default function Home() {
-  const page = {
-    title: seoData.openGraph.title,
-    excerpt: 'home',
-    slug: '/',
-    coverImage: 'https://vjy.me/preview.jpg'
-  };
   return (
     <>
-      <Seo page={page} />
-      <WebLinks />
+      <Seo page={{ title: 'Fabian Seiffert — Software Engineer', slug: '/' }} />
+      <Hero />
+      <TechStack />
     </>
-  )
+  );
 }
-

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { SearchIcon, StarIcon, ForkIcon, ExternalIcon, GithubIcon } from './icons';
 import languageColors from '../data/languageColors';
@@ -50,6 +50,10 @@ export default function StarsBrowser() {
   const [query, setQuery] = useState('');
   const [lang, setLang] = useState('all');
   const [sort, setSort] = useState('recent');
+  const [visibleCount, setVisibleCount] = useState(50);
+  const sentinelRef = useRef(null);
+
+  const PAGE_SIZE = 50;
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +119,29 @@ export default function StarsBrowser() {
     return sorted;
   }, [repos, query, lang, sort]);
 
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [query, lang, sort]);
+
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hasMore = visibleCount < filtered.length;
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleCount((c) => Math.min(c + PAGE_SIZE, filtered.length));
+        }
+      },
+      { rootMargin: '600px 0px' }
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, [hasMore, filtered.length, visibleCount]);
+
   return (
     <Wrap>
       <Header>
@@ -171,7 +198,7 @@ export default function StarsBrowser() {
       )}
 
       <Grid>
-        {filtered.map((r) => (
+        {visible.map((r) => (
           <Card key={r.id} href={r.html_url} target="_blank" rel="noreferrer">
             <CardTop>
               <Owner>
@@ -215,6 +242,11 @@ export default function StarsBrowser() {
           </Card>
         ))}
       </Grid>
+
+      {hasMore && <Sentinel ref={sentinelRef}>loading more…</Sentinel>}
+      {!hasMore && filtered.length > PAGE_SIZE && (
+        <EndMark>— end of {filtered.length} repos —</EndMark>
+      )}
     </Wrap>
   );
 }
@@ -461,4 +493,21 @@ const Pushed = styled.span`
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   color: ${({ theme }) => theme.text.tertiary};
+`;
+
+const Sentinel = styled.div`
+  padding: 32px 0;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: ${({ theme }) => theme.text.tertiary};
+`;
+
+const EndMark = styled.div`
+  padding: 32px 0;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: ${({ theme }) => theme.text.tertiary};
+  letter-spacing: 0.05em;
 `;
